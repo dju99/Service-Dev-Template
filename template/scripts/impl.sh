@@ -11,7 +11,12 @@ README=design-reference/README.md
 get() { sed -n "s/^$1:[[:space:]]*//p" "$STATE" | head -n1 | tr -d '\r'; }
 d=$(get design_rev); i=$(get implemented_rev)
 
-if [ "$d" = "$i" ]; then echo "최신 상태: 구현할 변경 없음 (r$d)"; exit 0; fi
+LINTLOG="$(git rev-parse --git-dir)/sdev-lint.txt"   # 지난 구현의 린트 오류 (커밋되지 않는 위치)
+if [ "$d" = "$i" ]; then
+  echo "최신 상태: 구현할 변경 없음 (r$d)"
+  [ -s "$LINTLOG" ] && echo "참고: 지난 구현의 린트 오류가 남아 있습니다. 다음 구현 때 함께 고칩니다."
+  exit 0
+fi
 if ! git rev-parse -q --verify "refs/tags/design-r$d" >/dev/null; then
   echo "오류: design-r$d 태그가 없습니다. 시안 기록이 중간에 실패했을 수 있습니다. bash scripts/state.sh 로 점검하세요."; exit 1
 fi
@@ -40,27 +45,54 @@ if [ "$i" = "0" ]; then
 else
   scope="state.sh와 CHANGES.md는 다시 읽지 않아도 된다. 이번 범위의 변경 목록은 아래와 같다."
 fi
+lintnote=""
+if [ -s "$LINTLOG" ]; then lintnote="지난 구현의 린트 오류도 함께 고친다:
+$(head -n 40 "$LINTLOG")
+"; fi
 prompt="AGENTS.md 절차대로 구현한다.
 목표 rev: $d (구현 범위: r$((i+1)) ~ r$d, 현재 implemented_rev: $i)
 $scope
 ${changes:-(기록된 항목 없음)}
 
-마무리는 반드시 bash scripts/impl-done.sh $d \"요약\" 으로 한다.
+${lintnote}
+git 커밋과 scripts/impl-done.sh 실행은 하지 않는다. 구현이 끝나면 이 스크립트(impl.sh)가 기록과 커밋을 처리한다.
 마지막 메시지는 이 형식으로만 쓴다:
 - 구현: r$d
 - 검수할 아트보드:
-- 추가한 RULE ID:
 - 판단을 미룬 점:"
 
 echo "Codex 실행 중 (목표 r$d)..."
-out=$(codex exec --sandbox workspace-write "$prompt" 2>/dev/null </dev/null); rc=$?
+errlog=$(mktemp)
+out=$(codex exec --sandbox workspace-write "$prompt" 2>"$errlog" </dev/null); rc=$?
 if [ $rc -ne 0 ]; then
-  echo "오류: Codex 실행이 실패했습니다 (종료 코드 $rc). 터미널에서 codex login 상태를 확인하세요."
-  [ -n "$out" ] && echo "$out" | tail -n 20
+  echo "오류: Codex 실행이 실패했습니다 (종료 코드 $rc). 아래는 Codex가 남긴 마지막 오류 메시지입니다."
+  grep -iE "error|fail|denied|not found|unauthorized|invalid|model" "$errlog" | tail -n 8 | sed 's/^/  | /'
+  [ -s "$errlog" ] && ! grep -qiE "error|fail|denied|not found|unauthorized|invalid|model" "$errlog" && tail -n 8 "$errlog" | sed 's/^/  | /'
+  echo "자주 있는 원인: 모델 설정(~/.codex/config.toml의 model), 로그인(codex login), 네트워크."
+  rm -f "$errlog"
   exit 1
 fi
+rm -f "$errlog"
 echo "$out"
-after=$(get implemented_rev)
-if [ "$after" != "$d" ]; then
-  echo "경고: implemented_rev가 아직 $after 입니다. Codex가 마무리 스크립트를 실행하지 못했을 수 있습니다. 변경 내용을 확인한 뒤 bash scripts/impl-done.sh $d \"요약\" 을 실행하세요."
+
+# 마무리: Codex 샌드박스는 .git에 쓸 수 없으므로 기록과 커밋은 여기서 처리한다.
+n=$(git status --porcelain -- . ':(exclude)design-reference' ':(exclude)design-system' 2>/dev/null | grep -c . || true)
+if [ "$n" = "0" ]; then echo "변경 파일: 0개 (코드 변경 없이 구현 완료로 기록합니다)"; else echo "변경 파일: ${n}개"; fi
+bash scripts/impl-done.sh "$d" "구현" || {
+  echo "경고: 구현은 끝났지만 기록과 커밋에 실패했습니다. 위 메시지를 확인한 뒤 bash scripts/impl-done.sh $d \"요약\" 을 실행하세요."
+  exit 1
+}
+
+# 린트: Codex 샌드박스에서는 npm이 막히므로 여기서 실행한다.
+if [ -f package.json ] && grep -qE '"lint"[[:space:]]*:' package.json; then
+  if [ -d node_modules ] && command -v npm >/dev/null 2>&1; then
+    if npm run -s lint >"$LINTLOG" 2>&1; then
+      rm -f "$LINTLOG"; echo "린트: 통과"
+    else
+      echo "린트: 오류 $(grep -c . "$LINTLOG")줄. 다음 구현 때 Codex가 함께 고칩니다. 마지막 몇 줄:"
+      tail -n 8 "$LINTLOG" | sed 's/^/  | /'
+    fi
+  else
+    echo "참고: 린트를 실행하지 않았습니다. 프로젝트 폴더에서 npm install을 한 번 실행하면 다음 구현부터 자동으로 실행됩니다."
+  fi
 fi

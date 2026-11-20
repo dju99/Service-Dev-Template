@@ -37,24 +37,36 @@ done < <(find "$src" -type f -print0 | sort -z)
 
 echo "템플릿: $REPO_URL (${REF:-기본 브랜치}, $sha)"
 echo "생성: ${#created[@]}개"
-if [ ${#skipped[@]} -eq 0 ]; then echo "건너뜀: 없음"; else echo "건너뜀(이미 있음): ${#skipped[@]}개"; printf '  - %s\n' "${skipped[@]}"; fi
+if [ ${#skipped[@]} -eq 0 ]; then echo "건너뜀: 없음"
+elif [ ${#created[@]} -eq 0 ]; then echo "건너뜀: ${#skipped[@]}개 (모두 이미 있음, 재실행)"
+else echo "건너뜀(이미 있음): ${#skipped[@]}개"; printf '  - %s\n' "${skipped[@]}"; fi
 
 cd "$TARGET"
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git init -q && echo "git: 저장소 초기화"; fi
+
+# 커밋 대상: 템플릿 경로의 파일 중 아직 커밋되지 않은 것 (이번에 만든 파일 + 이전 실행에서 커밋하지 못한 파일)
+to_add=()
+while IFS= read -r -d '' f; do
+  rel="${f#"$src"/}"
+  if [ -e "$rel" ] && ! git ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then to_add+=("$rel"); fi
+done < <(find "$src" -type f -print0 | sort -z)
+
 if [ -z "$(git config user.name || true)" ] || [ -z "$(git config user.email || true)" ]; then
-  echo "git: user.name / user.email이 없어 커밋과 태그를 건너뜀. 아래 명령 후 Claude Code에 '초기 커밋해줘'라고 요청하세요."
+  echo "git: user.name / user.email이 없어 커밋과 태그를 건너뜀. 아래 두 명령을 실행한 뒤 /sdev를 다시 실행하면 커밋과 태그만 이어서 처리합니다."
   echo '  git config --global user.name "내 이름"'
   echo '  git config --global user.email "내이메일@example.com"'
-elif [ ${#created[@]} -eq 0 ]; then
-  echo "git: 새로 만든 파일이 없어 커밋하지 않음"
+elif [ ${#to_add[@]} -eq 0 ]; then
+  echo "git: 커밋할 템플릿 파일이 없음 (이미 커밋됨)"
 else
-  if git add -- "${created[@]}" && git commit -q -m "chore: sdev 초기 세팅 (template $sha)"; then
-    echo "git: 초기 커밋 완료 (새로 만든 파일만)"
-    if git rev-parse -q --verify refs/tags/design-r0 >/dev/null; then echo "git: design-r0 태그가 이미 있어 건너뜀"
-    else git tag design-r0 && echo "git: design-r0 태그 생성"; fi
+  if git add -- "${to_add[@]}" && git commit -q -m "chore: sdev 초기 세팅 (template $sha)"; then
+    echo "git: 초기 커밋 완료 (템플릿 파일 ${#to_add[@]}개)"
   else
     echo "git: 커밋 실패. 위 메시지를 확인하세요."
   fi
+fi
+if [ -n "$(git config user.name || true)" ] && git rev-parse -q --verify HEAD >/dev/null; then
+  if git rev-parse -q --verify refs/tags/design-r0 >/dev/null; then echo "git: design-r0 태그 있음"
+  else git tag design-r0 && echo "git: design-r0 태그 생성"; fi
 fi
 case "$TARGET" in *OneDrive*) echo "경고: 현재 폴더가 OneDrive 안에 있습니다. 동기화가 .git 폴더와 충돌해 저장소가 손상될 수 있으니 C:\\dev\\프로젝트이름 처럼 OneDrive 밖으로 옮기는 것을 권장합니다.";; esac
 echo "다음 단계: docs/requirements.md에 플랫폼(웹/앱)과 큰 요구사항을 적고, 시안을 요청하세요. 시안이 정해지면 '구현'이라고 입력합니다. (Codex CLI 설치와 codex login 필요)"

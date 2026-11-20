@@ -1,6 +1,6 @@
 ---
 name: sdev
-description: 빈 폴더(또는 새 프로젝트 폴더)에 "시안 → 개발" 워크플로우 초기 세팅을 한 번에 만든다. GitHub 템플릿 저장소에서 CLAUDE.md, AGENTS.md, docs/requirements.md, design-system/(디자인 규칙·토큰), design-reference/(STATE·CHANGES·README·WORKFLOW·canvas-source), scripts/, src/ 를 가져와 복사하고 git 초기화·초기 커밋·design-r0 태그까지 처리한다. 사용자가 /sdev 를 입력하거나 "프로젝트 초기 세팅", "시안-개발 워크플로우 세팅", "CLAUDE.md AGENTS.md 만들어줘" 같은 요청을 하면 반드시 이 스킬을 사용한다.
+description: 빈 폴더(또는 새 프로젝트 폴더)에 "시안 → 개발" 워크플로우 초기 세팅을 한 번에 만든다. GitHub 템플릿 저장소에서 CLAUDE.md, AGENTS.md, docs/requirements.md, design-system/(디자인 규칙·토큰), design-reference/(STATE·CHANGES·README·canvas-source), scripts/, src/ 를 가져와 복사하고 git 초기화·초기 커밋·design-r0 태그까지 처리한다. 사용자가 /sdev 를 입력하거나 "프로젝트 초기 세팅", "시안-개발 워크플로우 세팅", "CLAUDE.md AGENTS.md 만들어줘" 같은 요청을 하면 반드시 이 스킬을 사용한다.
 ---
 
 # sdev: 시안-개발 워크플로우 초기 세팅
