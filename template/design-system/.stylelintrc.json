@@ -1,0 +1,30 @@
+{
+  "plugins": ["stylelint-declaration-strict-value"],
+  "rules": {
+    "color-no-hex": [true, { "message": "hex 색 대신 tokens.css의 var(--...) 토큰을 쓰세요." }],
+    "color-named": ["never", { "message": "색 이름 대신 토큰을 쓰세요." }],
+    "function-disallowed-list": [["rgb", "rgba", "hsl", "hsla"], { "message": "색 함수 대신 토큰을 쓰세요." }],
+    "scale-unlimited/declaration-strict-value": [
+      ["/color$/", "background", "background-color", "fill", "stroke", "border-radius", "box-shadow", "font-family", "font-size"],
+      {
+        "ignoreValues": ["transparent", "inherit", "currentColor", "none", "0", "unset", "initial"],
+        "disableFix": true,
+        "message": "${property}에는 tokens.css의 var(--...) 토큰을 쓰세요."
+      }
+    ],
+    "font-weight-notation": "numeric",
+    "declaration-property-value-allowed-list": {
+      "font-weight": ["400", "600", "700", "/^var\\(/"]
+    }
+  },
+  "overrides": [
+    {
+      "files": ["design/tokens.css"],
+      "rules": {
+        "color-no-hex": null,
+        "function-disallowed-list": null,
+        "scale-unlimited/declaration-strict-value": null
+      }
+    }
+  ]
+}
