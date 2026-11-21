@@ -93,16 +93,32 @@ bash scripts/impl-done.sh "$d" "구현" || {
 # 빌드: Codex 샌드박스에서는 Gradle·npm이 막힐 수 있으므로 여기서 실행한다.
 # 명령을 바꾸려면 환경 변수 SDEV_BUILD_CMD를 쓴다. (예: SDEV_BUILD_CMD="./gradlew :app:assembleRelease")
 build_cmd="${SDEV_BUILD_CMD:-}"
+build_skip=""
 if [ -z "$build_cmd" ]; then
-  if [ -f gradlew.bat ] && case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) true;; *) false;; esac; then
-    build_cmd="cmd.exe //c gradlew.bat assembleDebug --console=plain"
-  elif [ -f gradlew ]; then
-    build_cmd="sh ./gradlew assembleDebug --console=plain"
+  if [ -f gradlew ] || [ -f gradlew.bat ]; then
+    # Gradle은 JDK가 필요하다. JAVA_HOME·PATH에 없으면 흔한 설치 위치(Android Studio 내장 JDK 등)를 찾는다.
+    if [ -z "${JAVA_HOME:-}" ] && ! command -v java >/dev/null 2>&1; then
+      for jh in "/c/Program Files/Android/Android Studio/jbr" "$HOME/AppData/Local/Programs/Android Studio/jbr" \
+                "/Applications/Android Studio.app/Contents/jbr/Contents/Home" /c/Program\ Files/Java/jdk* \
+                /c/Program\ Files/Eclipse\ Adoptium/jdk* /c/Program\ Files/Microsoft/jdk* "$HOME"/.jdks/*; do
+        if [ -x "$jh/bin/java" ] || [ -x "$jh/bin/java.exe" ]; then export JAVA_HOME="$jh"; break; fi
+      done
+    fi
+    if [ -z "${JAVA_HOME:-}" ] && ! command -v java >/dev/null 2>&1; then
+      build_skip="JDK를 찾지 못해 빌드를 건너뜁니다. Android Studio를 설치하거나 JAVA_HOME을 설정하면 다음 구현부터 빌드합니다."
+    elif [ -f gradlew.bat ] && case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) true;; *) false;; esac; then
+      [ -n "${JAVA_HOME:-}" ] && export JAVA_HOME="$(cygpath -w "$JAVA_HOME" 2>/dev/null || echo "$JAVA_HOME")"
+      build_cmd="cmd.exe //c '.\\gradlew.bat assembleDebug --console=plain'"
+    else
+      build_cmd="sh ./gradlew assembleDebug --console=plain"
+    fi
   elif [ -f package.json ] && grep -qE '"build"[[:space:]]*:' package.json && [ -d node_modules ] && command -v npm >/dev/null 2>&1; then
     build_cmd="npm run -s build"
   fi
 fi
-if [ -n "$build_cmd" ]; then
+if [ -n "$build_skip" ]; then
+  rm -f "$BUILDLOG"; echo "참고: $build_skip"
+elif [ -n "$build_cmd" ]; then
   echo "빌드 중: $build_cmd"
   if eval "$build_cmd" >"$BUILDLOG" 2>&1; then
     rm -f "$BUILDLOG"; echo "빌드: 통과"
