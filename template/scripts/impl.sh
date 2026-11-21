@@ -12,9 +12,11 @@ get() { sed -n "s/^$1:[[:space:]]*//p" "$STATE" | head -n1 | tr -d '\r'; }
 d=$(get design_rev); i=$(get implemented_rev)
 
 LINTLOG="$(git rev-parse --git-dir)/sdev-lint.txt"   # 지난 구현의 린트 오류 (커밋되지 않는 위치)
+BUILDLOG="$(git rev-parse --git-dir)/sdev-build.txt" # 지난 구현의 빌드 오류 (커밋되지 않는 위치)
 if [ "$d" = "$i" ]; then
   echo "최신 상태: 구현할 변경 없음 (r$d)"
   [ -s "$LINTLOG" ] && echo "참고: 지난 구현의 린트 오류가 남아 있습니다. 다음 구현 때 함께 고칩니다."
+  [ -s "$BUILDLOG" ] && echo "참고: 지난 구현의 빌드 오류가 남아 있습니다. 다음 구현 때 함께 고칩니다."
   exit 0
 fi
 if ! git rev-parse -q --verify "refs/tags/design-r$d" >/dev/null; then
@@ -49,12 +51,17 @@ lintnote=""
 if [ -s "$LINTLOG" ]; then lintnote="지난 구현의 린트 오류도 함께 고친다:
 $(head -n 40 "$LINTLOG")
 "; fi
+buildnote=""
+if [ -s "$BUILDLOG" ]; then buildnote="지난 구현의 빌드 오류도 함께 고친다:
+$(grep -iE "error|e: |failed|exception|unresolved" "$BUILDLOG" | head -n 40)
+"; fi
 prompt="AGENTS.md 절차대로 구현한다.
 목표 rev: $d (구현 범위: r$((i+1)) ~ r$d, 현재 implemented_rev: $i)
 $scope
 ${changes:-(기록된 항목 없음)}
 
-${lintnote}
+${lintnote}${buildnote}
+빌드와 린트는 직접 실행하지 않아도 된다. 구현이 끝나면 이 스크립트(impl.sh)가 밖에서 실행한다.
 git 커밋과 scripts/impl-done.sh 실행은 하지 않는다. 구현이 끝나면 이 스크립트(impl.sh)가 기록과 커밋을 처리한다.
 마지막 메시지는 이 형식으로만 쓴다:
 - 구현: r$d
@@ -82,6 +89,28 @@ bash scripts/impl-done.sh "$d" "구현" || {
   echo "경고: 구현은 끝났지만 기록과 커밋에 실패했습니다. 위 메시지를 확인한 뒤 bash scripts/impl-done.sh $d \"요약\" 을 실행하세요."
   exit 1
 }
+
+# 빌드: Codex 샌드박스에서는 Gradle·npm이 막힐 수 있으므로 여기서 실행한다.
+# 명령을 바꾸려면 환경 변수 SDEV_BUILD_CMD를 쓴다. (예: SDEV_BUILD_CMD="./gradlew :app:assembleRelease")
+build_cmd="${SDEV_BUILD_CMD:-}"
+if [ -z "$build_cmd" ]; then
+  if [ -f gradlew.bat ] && case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) true;; *) false;; esac; then
+    build_cmd="cmd.exe //c gradlew.bat assembleDebug --console=plain"
+  elif [ -f gradlew ]; then
+    build_cmd="sh ./gradlew assembleDebug --console=plain"
+  elif [ -f package.json ] && grep -qE '"build"[[:space:]]*:' package.json && [ -d node_modules ] && command -v npm >/dev/null 2>&1; then
+    build_cmd="npm run -s build"
+  fi
+fi
+if [ -n "$build_cmd" ]; then
+  echo "빌드 중: $build_cmd"
+  if eval "$build_cmd" >"$BUILDLOG" 2>&1; then
+    rm -f "$BUILDLOG"; echo "빌드: 통과"
+  else
+    echo "빌드: 실패. 다음 구현 때 Codex가 함께 고칩니다. 오류 줄:"
+    { grep -iE "error|e: |failed|exception|unresolved" "$BUILDLOG" || tail -n 8 "$BUILDLOG"; } | head -n 8 | sed 's/^/  | /'
+  fi
+fi
 
 # 린트: Codex 샌드박스에서는 npm이 막히므로 여기서 실행한다.
 if [ -f package.json ] && grep -qE '"lint"[[:space:]]*:' package.json; then
